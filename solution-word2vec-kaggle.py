@@ -164,6 +164,8 @@ if __name__ == "__main__":
     elif MODEL_TYPE == ModelType.RIDGE_REGRESSION_MODEL:
         model = Ridge(random_state=63145, alpha=13.45)
         model.fit(X['train'], y['train'])
+    else:
+        raise Exception("Model couldn't be loaded.")
 
     if SCRIPT_ENVIRONMENT == "development":
         validation_predict_scores = model.predict(X['validation'])
