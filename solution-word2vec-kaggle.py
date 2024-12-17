@@ -8,15 +8,23 @@ from nltk.corpus import stopwords
 from scipy.stats import spearmanr
 from gensim.models import Word2Vec
 from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Ridge
 from xgboost import XGBRegressor
 from enum import Enum
 from typing import Optional, Any
+
+
+class ModelType(Enum):
+    RIDGE_REGRESSION_MODEL = 0,
+    XGBOOST_REGRESSION_MODEL = 1,
+
 
 download('stopwords')
 
 DEBUG_MODE = os.environ.get("DEBUG_MODE", True)
 SCRIPT_ENVIRONMENT = os.environ.get("SCRIPT_ENVIRONMENT", "development")  # or kaggle
 WORD_TOKENIZATION = os.environ.get("WORD_TOKENIZATION", "sentencepiece")  # or sentencepiece
+MODEL_TYPE = ModelType.RIDGE_REGRESSION_MODEL
 
 
 class EnumDatasetType(Enum):
@@ -138,26 +146,31 @@ if __name__ == "__main__":
         X['validation'] = standard_scaler.transform(X['validation'])
     X['test'] = standard_scaler.transform(X['test'])
 
-    xgb_regression_model = XGBRegressor(
-        random_state=63145,
-        objective="reg:squarederror",
-        verbosity=1,
-        num_parallel_tree=3,
-        multi_strategy="multi_output_tree",
-        colsample_bytree=0.8,
-        learning_rate=0.015,
-        max_depth=9,
-        n_estimators=570,
-        subsample=0.8,
-    )
-    xgb_regression_model.fit(X['train'], y['train'])
+    model = None
+    if MODEL_TYPE == ModelType.XGBOOST_REGRESSION_MODEL:
+        model = XGBRegressor(
+            random_state=63145,
+            objective="reg:squarederror",
+            verbosity=1,
+            num_parallel_tree=3,
+            multi_strategy="multi_output_tree",
+            colsample_bytree=0.8,
+            learning_rate=0.015,
+            max_depth=9,
+            n_estimators=570,
+            subsample=0.8,
+        )
+        model.fit(X['train'], y['train'])
+    elif MODEL_TYPE == ModelType.RIDGE_REGRESSION_MODEL:
+        model = Ridge(random_state=63145, alpha=13.45)
+        model.fit(X['train'], y['train'])
 
     if SCRIPT_ENVIRONMENT == "development":
-        validation_predict_scores = xgb_regression_model.predict(X['validation'])
+        validation_predict_scores = model.predict(X['validation'])
         validation_score = spearmanr(y['validation'], validation_predict_scores).correlation
         print(f"[development] Validation Spearman Correlation on the dataset: {validation_score}")
     else:
-        test_scores = xgb_regression_model.predict(X['test'])
+        test_scores = model.predict(X['test'])
 
         submission = pd.DataFrame({'id': test_dataframe['id'].values, 'score': test_scores})
         submission.to_csv('submission.csv', index=False)
