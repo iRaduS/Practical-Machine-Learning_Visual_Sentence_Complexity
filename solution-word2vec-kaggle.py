@@ -1,5 +1,6 @@
 import os
 import re
+
 import numpy as np
 import sentencepiece as spm
 import pandas as pd
@@ -24,7 +25,11 @@ download('stopwords')
 DEBUG_MODE = os.environ.get("DEBUG_MODE", True)
 SCRIPT_ENVIRONMENT = os.environ.get("SCRIPT_ENVIRONMENT", "development")  # or kaggle
 WORD_TOKENIZATION = os.environ.get("WORD_TOKENIZATION", "sentencepiece")  # or sentencepiece
-MODEL_TYPE = ModelType.RIDGE_REGRESSION_MODEL
+
+MODEL_TYPE = ModelType.XGBOOST_REGRESSION_MODEL if int(
+    os.environ.get("MODEL_TYPE", ModelType.XGBOOST_REGRESSION_MODEL.value[0])
+) == 1 else ModelType.RIDGE_REGRESSION_MODEL
+print(f'Initialized with the model: {MODEL_TYPE}')
 
 
 class EnumDatasetType(Enum):
@@ -105,11 +110,11 @@ if __name__ == "__main__":
                            .apply(lambda sentence: sentencepiece_piece_tokenizer.EncodeAsPieces(sentence))
                            .tolist())
         validation_sentences = (validation_dataframe['processed_text']
-                           .apply(lambda sentence: sentencepiece_piece_tokenizer.EncodeAsPieces(sentence))
-                           .tolist())
+                                .apply(lambda sentence: sentencepiece_piece_tokenizer.EncodeAsPieces(sentence))
+                                .tolist())
         test_sentences = (test_dataframe['processed_text']
-                           .apply(lambda sentence: sentencepiece_piece_tokenizer.EncodeAsPieces(sentence))
-                           .tolist())
+                          .apply(lambda sentence: sentencepiece_piece_tokenizer.EncodeAsPieces(sentence))
+                          .tolist())
         processed_sentences = (processed_texts
                                .apply(lambda sentence: sentencepiece_piece_tokenizer.EncodeAsPieces(sentence))
                                .tolist())
