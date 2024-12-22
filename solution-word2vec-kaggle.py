@@ -1,12 +1,16 @@
 import os
 import re
+import pickle
 
 import numpy as np
 import sentencepiece as spm
 import pandas as pd
+from copy import deepcopy
 from nltk import download
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 from nltk.corpus import stopwords
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr, alpha
 from gensim.models import Word2Vec
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
@@ -26,7 +30,7 @@ DEBUG_MODE = os.environ.get("DEBUG_MODE", True)
 SCRIPT_ENVIRONMENT = os.environ.get("SCRIPT_ENVIRONMENT", "development")  # or kaggle
 WORD_TOKENIZATION = os.environ.get("WORD_TOKENIZATION", "sentencepiece")  # or sentencepiece
 
-MODEL_TYPE = ModelType.XGBOOST_REGRESSION_MODEL if int(
+MODEL_TYPE = ModelType.RIDGE_REGRESSION_MODEL if int(
     os.environ.get("MODEL_TYPE", ModelType.XGBOOST_REGRESSION_MODEL.value[0])
 ) == 1 else ModelType.RIDGE_REGRESSION_MODEL
 print(f'Initialized with the model: {MODEL_TYPE}')
@@ -167,16 +171,82 @@ if __name__ == "__main__":
         )
         model.fit(X['train'], y['train'])
     elif MODEL_TYPE == ModelType.RIDGE_REGRESSION_MODEL:
-        model = Ridge(random_state=63145, alpha=13.45)
-        model.fit(X['train'], y['train'])
+        alphas = np.arange(0.0, 20.0, 0.05)
+
+        maximum_spearman_correlation, new_model = -np.inf, None
+        validation_mae, validation_mse, validation_spearman, validation_pearson = [], [], [], []
+        for alpha in alphas:
+            model = Ridge(random_state=63145, alpha=alpha)
+            model.fit(X['train'], y['train'])
+
+            if SCRIPT_ENVIRONMENT == "development":
+                validation_predict_scores = model.predict(X['validation'])
+
+                mse = mean_squared_error(y['validation'], validation_predict_scores)
+                mae = mean_absolute_error(y['validation'], validation_predict_scores)
+                spearman_corr = spearmanr(y['validation'], validation_predict_scores).correlation
+                pearson_corr = pearsonr(y['validation'], validation_predict_scores).correlation
+
+                print(f'[Ridge Regression] For alpha = {alpha} we have, '
+                      f'MSE: {mse:.7f}, MAE: {mae:.7f}, S: {spearman_corr:.7f}, P: {pearson_corr:.7f}.')
+
+                validation_mae.append(mae)
+                validation_mse.append(mse)
+                validation_spearman.append(spearman_corr)
+                validation_pearson.append(pearson_corr)
+
+                if spearman_corr > maximum_spearman_correlation:
+                    maximum_spearman_correlation = spearman_corr
+                    new_model = deepcopy(model)
+
+                    print(f"[Ridge Regression] New model was saved during the training with the parameter alpha = {alpha}")
+
+        if SCRIPT_ENVIRONMENT == "development":
+            plt.subplot(2, 2, 1)
+            plt.plot(alphas, validation_mae, marker='o')
+            plt.title('Mean Absolute Error (MAE)')
+            plt.xlabel('Alpha')
+            plt.ylabel('MAE')
+
+            # Plot MSE
+            plt.subplot(2, 2, 2)
+            plt.plot(alphas, validation_mse, marker='o')
+            plt.title('Mean Squared Error (MSE)')
+            plt.xlabel('Alpha')
+            plt.ylabel('MSE')
+
+            # Plot Spearman Correlation
+            plt.subplot(2, 2, 3)
+            plt.plot(alphas, validation_spearman, marker='o')
+            plt.title('Spearman Correlation')
+            plt.xlabel('Alpha')
+            plt.ylabel('Spearman Correlation')
+
+            # Plot Pearson Correlation
+            plt.subplot(2, 2, 4)
+            plt.plot(alphas, validation_pearson, marker='o')
+            plt.title('Pearson Correlation')
+            plt.xlabel('Alpha')
+            plt.ylabel('Pearson Correlation')
+
+            plt.tight_layout()
+            plt.savefig("validation_metrics_ridge.png", dpi=300)
+            plt.show()
+
+        model = new_model
+        if model is None or new_model is None:
+            if os.path.exists(os.path.join('./', "ridge_regression_best_model.pkl")):
+                with open('ridge_regression_best_model.pkl', 'rb') as file:
+                    model = pickle.load(file)
+            else:
+                raise Exception("Model is None, please set the script environment to development"
+                                " and train the model first.")
+        with open('ridge_regression_best_model.pkl', 'wb') as file:
+            pickle.dump(new_model, file)
     else:
         raise Exception("Model couldn't be loaded.")
 
-    if SCRIPT_ENVIRONMENT == "development":
-        validation_predict_scores = model.predict(X['validation'])
-        validation_score = spearmanr(y['validation'], validation_predict_scores).correlation
-        print(f"[development] Validation Spearman Correlation on the dataset: {validation_score}")
-    else:
+    if SCRIPT_ENVIRONMENT == "kaggle":
         test_scores = model.predict(X['test'])
 
         submission = pd.DataFrame({'id': test_dataframe['id'].values, 'score': test_scores})
