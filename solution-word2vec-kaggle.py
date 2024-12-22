@@ -10,7 +10,7 @@ from nltk import download
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from nltk.corpus import stopwords
-from scipy.stats import spearmanr, pearsonr, alpha
+from scipy.stats import spearmanr, kendalltau
 from gensim.models import Word2Vec
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
@@ -30,7 +30,7 @@ DEBUG_MODE = os.environ.get("DEBUG_MODE", True)
 SCRIPT_ENVIRONMENT = os.environ.get("SCRIPT_ENVIRONMENT", "development")  # or kaggle
 WORD_TOKENIZATION = os.environ.get("WORD_TOKENIZATION", "sentencepiece")  # or sentencepiece
 
-MODEL_TYPE = ModelType.RIDGE_REGRESSION_MODEL if int(
+MODEL_TYPE = ModelType.XGBOOST_REGRESSION_MODEL if int(
     os.environ.get("MODEL_TYPE", ModelType.XGBOOST_REGRESSION_MODEL.value[0])
 ) == 1 else ModelType.RIDGE_REGRESSION_MODEL
 print(f'Initialized with the model: {MODEL_TYPE}')
@@ -170,11 +170,21 @@ if __name__ == "__main__":
             subsample=0.8,
         )
         model.fit(X['train'], y['train'])
+
+        if SCRIPT_ENVIRONMENT == "development":
+            validation_predict_scores = model.predict(X['validation'])
+
+            mse = mean_squared_error(y['validation'], validation_predict_scores)
+            mae = mean_absolute_error(y['validation'], validation_predict_scores)
+            spearman_corr = spearmanr(y['validation'], validation_predict_scores).correlation
+            kendall_corr = kendalltau(y['validation'], validation_predict_scores).correlation
+
+            print(f'[XGB Regression] MSE: {mse:.7f}, MAE: {mae:.7f}, S: {spearman_corr:.7f}, KT: {kendall_corr:.7f}.')
     elif MODEL_TYPE == ModelType.RIDGE_REGRESSION_MODEL:
         alphas = np.arange(0.0, 20.0, 0.05)
 
         maximum_spearman_correlation, new_model = -np.inf, None
-        validation_mae, validation_mse, validation_spearman, validation_pearson = [], [], [], []
+        validation_mae, validation_mse, validation_spearman, validation_kendall = [], [], [], []
         for alpha in alphas:
             model = Ridge(random_state=63145, alpha=alpha)
             model.fit(X['train'], y['train'])
@@ -185,21 +195,22 @@ if __name__ == "__main__":
                 mse = mean_squared_error(y['validation'], validation_predict_scores)
                 mae = mean_absolute_error(y['validation'], validation_predict_scores)
                 spearman_corr = spearmanr(y['validation'], validation_predict_scores).correlation
-                pearson_corr = pearsonr(y['validation'], validation_predict_scores).correlation
+                kendall_corr = kendalltau(y['validation'], validation_predict_scores).correlation
 
                 print(f'[Ridge Regression] For alpha = {alpha} we have, '
-                      f'MSE: {mse:.7f}, MAE: {mae:.7f}, S: {spearman_corr:.7f}, P: {pearson_corr:.7f}.')
+                      f'MSE: {mse:.7f}, MAE: {mae:.7f}, S: {spearman_corr:.7f}, KT: {kendall_corr:.7f}.')
 
                 validation_mae.append(mae)
                 validation_mse.append(mse)
                 validation_spearman.append(spearman_corr)
-                validation_pearson.append(pearson_corr)
+                validation_kendall.append(kendall_corr)
 
                 if spearman_corr > maximum_spearman_correlation:
                     maximum_spearman_correlation = spearman_corr
                     new_model = deepcopy(model)
 
-                    print(f"[Ridge Regression] New model was saved during the training with the parameter alpha = {alpha}")
+                    print(
+                        f"[Ridge Regression] New model was saved during the training with the parameter alpha = {alpha}")
 
         if SCRIPT_ENVIRONMENT == "development":
             plt.subplot(2, 2, 1)
@@ -224,10 +235,10 @@ if __name__ == "__main__":
 
             # Plot Pearson Correlation
             plt.subplot(2, 2, 4)
-            plt.plot(alphas, validation_pearson, marker='o')
-            plt.title('Pearson Correlation')
+            plt.plot(alphas, validation_kendall, marker='o')
+            plt.title('Kendall-Tau Correlation')
             plt.xlabel('Alpha')
-            plt.ylabel('Pearson Correlation')
+            plt.ylabel('Kendall-Tau Correlation')
 
             plt.tight_layout()
             plt.savefig("validation_metrics_ridge.png", dpi=300)
